@@ -1,22 +1,31 @@
 #include <assert.h>
 #include "erl_nif.h"
+#include "hiredis.h"
+#include "async.h"
+#include "adapters/libevent.h"
 
 typedef struct {
     ErlNifThreadOpts*   opts;
     ErlNifTid           qthread;
+    struct event_base*         event_base;
+    redisAsyncContext*  context;
     ERL_NIF_TERM        atom_ok;
 } state_t;
+
+void getCallback(redisAsyncContext *c, void *r, void *privdata) {
+    redisReply *reply = r;
+    if (reply == NULL) return;
+    printf("argv[%s]: %s\n", (char*)privdata, reply->str);
+}
 
 static void*
 thr_main(void* obj) {
     state_t* state = (state_t*) obj;
-    ErlNifEnv* env = enif_alloc_env();
-    ErlNifPid* pid;
-    ERL_NIF_TERM msg;
-
-    return NULL;
+    struct event_base *base = event_base_new();
+    state->event_base = base; 
+    event_base_dispatch(base);
+    return 0;
 }
-
 
 static int
 load(ErlNifEnv* env, void** priv, ERL_NIF_TERM load_info) {
@@ -25,7 +34,7 @@ load(ErlNifEnv* env, void** priv, ERL_NIF_TERM load_info) {
 
     state->opts = enif_thread_opts_create("thread_opts");
     if(enif_thread_create("", &(state->qthread), thr_main, state, state->opts) != 0) {
-        goto error;
+        return 1;
     }
 
     state->atom_ok = enif_make_atom(env, "ok");
@@ -33,9 +42,6 @@ load(ErlNifEnv* env, void** priv, ERL_NIF_TERM load_info) {
     *priv = (void*) state;
 
     return 0;
-
-error:
-    return -1;
 }
 
 static void
@@ -49,16 +55,29 @@ unload(ErlNifEnv* env, void* priv) {
     enif_free(state);
 }
 
+void connectCallback(const redisAsyncContext *c) {
+    ((void)c);
+    printf("connected...\n");
+}
+
+void disconnectCallback(const redisAsyncContext *c, int status) {
+    if (status != REDIS_OK) {
+        printf("Error: %s\n", c->errstr);
+    }
+    printf("disconnected...\n");
+}
+
 static ERL_NIF_TERM
-connect(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
-    ErlNifBinary ip;
+redis_connect(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
+    state_t* state = (state_t*) enif_priv_data(env);
+    char ip[1024];
     int port;
 
     if(argc != 2) {
         return enif_make_badarg(env);
     }
 
-    if(!enif_inspect_binary(env, argv[0], &ip) {
+    if(!enif_get_string(env, argv[0], ip, 1024, ERL_NIF_LATIN1)) {
         return enif_make_badarg(env);
     }
 
@@ -68,26 +87,34 @@ connect(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
 
     redisAsyncContext *c = redisAsyncConnect(ip, port);
     if (c->err) {
+        // Let *c leak for now...
         printf("Error: %s\n", c->errstr);
-        // handle error
+        return 1;
     }
-    
+
+    state->context = c;
+
+    redisLibeventAttach(c, state->event_base);
+    redisAsyncSetConnectCallback(c, connectCallback);
+    redisAsyncSetDisconnectCallback(c, disconnectCallback);
+
+    return state->atom_ok; 
 }
 
 static ERL_NIF_TERM
 command(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
     state_t* state = (state_t*) enif_priv_data(env);
-    ErlNifPid* pid = (ErlNifPid*) enif_alloc(sizeof(ErlNifPid));
+    //ErlNifPid* pid = (ErlNifPid*) enif_alloc(sizeof(ErlNifPid));
 
-    if(!enif_get_local_pid(env, argv[0], pid)) {
+    /*if(!enif_get_local_pid(env, argv[0], pid)) {
         return enif_make_badarg(env);
-    }
+    }*/
 
     return state->atom_ok;
 }
 
 static ErlNifFunc nif_funcs[] = {
-    {"connect", 2, connect},
+    {"connect", 2, redis_connect},
     //{"connect_unix", 1, connectUnix},
     {"command", 1, command}
 };

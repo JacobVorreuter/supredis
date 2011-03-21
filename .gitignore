@@ -3,3 +3,4 @@ src/*.swp
 c_src/*.swp
 ebin
 priv
+c_src/*.o
