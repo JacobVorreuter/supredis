@@ -1,0 +1,5 @@
+*.swp
+src/*.swp
+c_src/*.swp
+ebin
+priv

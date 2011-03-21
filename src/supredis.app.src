@@ -1,0 +1,12 @@
+{application, supredis,
+ [
+  {description, "Erlang NIF wrapper around hiredis"},
+  {vsn, "0.1"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {mod, { supredis_app, []}},
+  {env, []}
+ ]}.
