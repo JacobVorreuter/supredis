@@ -2,28 +2,18 @@
 #include "erl_nif.h"
 #include "hiredis.h"
 #include "async.h"
-#include "adapters/libevent.h"
+#include "adapters/libev.h"
 
 typedef struct {
     ErlNifThreadOpts*   opts;
     ErlNifTid           qthread;
-    struct event_base*         event_base;
     redisAsyncContext*  context;
     ERL_NIF_TERM        atom_ok;
 } state_t;
 
-void getCallback(redisAsyncContext *c, void *r, void *privdata) {
-    redisReply *reply = r;
-    if (reply == NULL) return;
-    printf("argv[%s]: %s\n", (char*)privdata, reply->str);
-}
-
 static void*
 thr_main(void* obj) {
-    state_t* state = (state_t*) obj;
-    struct event_base *base = event_base_new();
-    state->event_base = base; 
-    event_base_dispatch(base);
+    ev_loop(EV_DEFAULT_ 0);
     return 0;
 }
 
@@ -94,29 +84,15 @@ redis_connect(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
 
     state->context = c;
 
-    redisLibeventAttach(c, state->event_base);
+    redisLibevAttach(EV_DEFAULT_ c);
     redisAsyncSetConnectCallback(c, connectCallback);
-    redisAsyncSetDisconnectCallback(c, disconnectCallback);
+    redisAsyncSetDisconnectCallback(c, disconnectCallback); 
 
     return state->atom_ok; 
 }
 
-static ERL_NIF_TERM
-command(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
-    state_t* state = (state_t*) enif_priv_data(env);
-    //ErlNifPid* pid = (ErlNifPid*) enif_alloc(sizeof(ErlNifPid));
-
-    /*if(!enif_get_local_pid(env, argv[0], pid)) {
-        return enif_make_badarg(env);
-    }*/
-
-    return state->atom_ok;
-}
-
 static ErlNifFunc nif_funcs[] = {
-    {"connect", 2, redis_connect},
-    //{"connect_unix", 1, connectUnix},
-    {"command", 1, command}
+    {"connect", 2, redis_connect}
 };
 
 ERL_NIF_INIT(supredis, nif_funcs, load, unload, NULL, NULL);

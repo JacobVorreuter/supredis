@@ -1,14 +1,11 @@
 -module(supredis).
--export([connect/2, command/1]).
+-export([connect/2]).
 -on_load(init/0).
 
 -define(APPNAME, supredis).
 -define(LIBNAME, supredis).
 
 connect(_, _) ->
-    not_loaded(?LINE).
-
-command(_) ->
     not_loaded(?LINE).
 
 init() ->
