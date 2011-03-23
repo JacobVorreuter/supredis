@@ -1,4 +1,5 @@
 all:
+	git submodule update --init
 	(cd deps/hiredis;$(MAKE))
 	./rebar compile
 

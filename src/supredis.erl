@@ -1,5 +1,8 @@
 -module(supredis).
--export([connect/2, command/1]).
+-export([connect/2,
+         sync_command/1,
+         sync_command/2,
+         async_command/1]).
 -on_load(init/0).
 
 -define(APPNAME, supredis).
@@ -8,7 +11,21 @@
 connect(_, _) ->
     not_loaded(?LINE).
 
-command(_) ->
+sync_command(Cmd) when is_binary(Cmd) ->
+    sync_command(Cmd, 8000).
+
+sync_command(Cmd, Timeout) when is_binary(Cmd), is_integer(Timeout) ->
+    async_command(Cmd),
+    Self = self(),
+    receive
+        {supredis, Self, Reply} ->
+            Reply
+    after Timeout ->
+        %% NOTE: msg will still be pushed into process message queue
+        {error, timeout}
+    end.
+    
+async_command(_) ->
     not_loaded(?LINE).
 
 init() ->

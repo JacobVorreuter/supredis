@@ -65,7 +65,11 @@ void getCallback(redisAsyncContext *c, void *r, void *privdata) {
     ErlNifPid* pid = (ErlNifPid*) privdata;
     ErlNifEnv* env = enif_alloc_env();
     ERL_NIF_TERM msg;
-    msg = enif_make_string(env, reply->str, ERL_NIF_LATIN1);
+    ERL_NIF_TERM str;
+    ERL_NIF_TERM atom;
+    str = enif_make_string(env, reply->str, ERL_NIF_LATIN1);
+    atom = enif_make_atom(env, "supredis");
+    msg = enif_make_tuple3(env, atom, pid, str);
     enif_send(NULL, pid, env, msg);
     enif_free(pid);
     enif_clear_env(env);
@@ -106,7 +110,7 @@ redis_connect(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
 }
 
 static ERL_NIF_TERM
-redis_command(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
+async_command(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
     state_t* state = (state_t*) enif_priv_data(env);
     ErlNifBinary cmd;
 
@@ -121,7 +125,7 @@ redis_command(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
     char str[size + 1];
     strncpy(str, (char*) (&cmd)->data, size);
     str[size] = '\0';
-    printf("cmd %d: [%s]\n", strlen(str), str);
+    printf("cmd %d: [%s]\n", (int) strlen(str), str);
     redisAsyncCommand(state->context, getCallback, pid, str);
 
     return state->atom_ok;
@@ -129,7 +133,7 @@ redis_command(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
 
 static ErlNifFunc nif_funcs[] = {
     {"connect", 2, redis_connect},
-    {"command", 1, redis_command}
+    {"async_command", 1, async_command}
 };
 
 ERL_NIF_INIT(supredis, nif_funcs, load, unload, NULL, NULL);
