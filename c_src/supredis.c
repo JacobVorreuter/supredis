@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <string.h>
 #include "erl_nif.h"
 #include "hiredis.h"
 #include "async.h"
@@ -57,6 +58,19 @@ void disconnectCallback(const redisAsyncContext *c, int status) {
     printf("disconnected...\n");
 }
 
+void getCallback(redisAsyncContext *c, void *r, void *privdata) {
+    printf("recv'd response\n");
+    redisReply *reply = r;
+    if (reply == NULL) return;
+    ErlNifPid* pid = (ErlNifPid*) privdata;
+    ErlNifEnv* env = enif_alloc_env();
+    ERL_NIF_TERM msg;
+    msg = enif_make_string(env, reply->str, ERL_NIF_LATIN1);
+    enif_send(NULL, pid, env, msg);
+    enif_free(pid);
+    enif_clear_env(env);
+}
+
 static ERL_NIF_TERM
 redis_connect(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
     state_t* state = (state_t*) enif_priv_data(env);
@@ -91,8 +105,31 @@ redis_connect(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
     return state->atom_ok; 
 }
 
+static ERL_NIF_TERM
+redis_command(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
+    state_t* state = (state_t*) enif_priv_data(env);
+    ErlNifBinary cmd;
+
+    if (argc != 1 || !enif_inspect_binary(env, argv[0], &cmd)) {
+        return enif_make_badarg(env);
+    }
+
+    ErlNifPid* pid = (ErlNifPid*) enif_alloc(sizeof(ErlNifPid));
+    enif_self(env, pid);
+
+    int size = (&cmd)->size;
+    char str[size + 1];
+    strncpy(str, (char*) (&cmd)->data, size);
+    str[size] = '\0';
+    printf("cmd %d: [%s]\n", strlen(str), str);
+    redisAsyncCommand(state->context, getCallback, pid, str);
+
+    return state->atom_ok;
+}
+
 static ErlNifFunc nif_funcs[] = {
-    {"connect", 2, redis_connect}
+    {"connect", 2, redis_connect},
+    {"command", 1, redis_command}
 };
 
 ERL_NIF_INIT(supredis, nif_funcs, load, unload, NULL, NULL);
