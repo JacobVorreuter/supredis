@@ -67,13 +67,33 @@ void getCallback(redisAsyncContext *c, void *r, void *privdata) {
     ErlNifPid* pid = (ErlNifPid*) privdata;
     ErlNifEnv* env = enif_alloc_env();
     ERL_NIF_TERM msg;
-    ERL_NIF_TERM str;
+    ERL_NIF_TERM reply1;
     ERL_NIF_TERM atom;
     ERL_NIF_TERM pid1;
-    str = enif_make_string(env, reply->str, ERL_NIF_LATIN1);
+    if(reply->type == REDIS_REPLY_STRING) {
+        reply1 = enif_make_string(env, reply->str, ERL_NIF_LATIN1);
+    } else if(reply->type == REDIS_REPLY_ARRAY) {
+        ERL_NIF_TERM *terms= (ERL_NIF_TERM *) malloc(sizeof(ERL_NIF_TERM)*(reply->elements));
+        int i;
+        for(i=0; i<(int)reply->elements; i++) {
+            if(reply->element[i]->type == REDIS_REPLY_STRING)
+                terms[i] = enif_make_string(env, reply->element[i]->str, ERL_NIF_LATIN1);
+            else if(reply->element[i]->type == REDIS_REPLY_INTEGER)
+                terms[i] = enif_make_int(env, reply->element[i]->integer);
+        }
+        reply1 = enif_make_list_from_array(env, terms, reply->elements);
+    } else if(reply->type == REDIS_REPLY_INTEGER) {
+        reply1 = enif_make_int(env, reply->integer);
+    } else if(reply->type == REDIS_REPLY_NIL) {
+        reply1 = enif_make_atom(env, "undefined");
+    } else if(reply->type == REDIS_REPLY_STATUS) {
+        reply1 = enif_make_string(env, reply->str, ERL_NIF_LATIN1);
+    } else if(reply->type == REDIS_REPLY_ERROR) {
+        reply1 = enif_make_string(env, reply->str, ERL_NIF_LATIN1);
+    }
     atom = enif_make_atom(env, "supredis");
     pid1 = enif_make_pid(env, pid);
-    msg = enif_make_tuple3(env, atom, pid1, str);
+    msg = enif_make_tuple3(env, atom, pid1, reply1);
     enif_send(NULL, pid, env, msg);
     enif_free(pid);
     enif_clear_env(env);
@@ -82,24 +102,34 @@ void getCallback(redisAsyncContext *c, void *r, void *privdata) {
 static ERL_NIF_TERM
 redis_connect(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
     ERL_NIF_TERM resource;
+    char path[1024];
     char ip[1024];
     int port;
 
-    if(argc != 2) {
+    if(argc != 1 && argc != 2) {
         return enif_make_badarg(env);
     }
 
-    if(!enif_get_string(env, argv[0], ip, 1024, ERL_NIF_LATIN1)) {
+    if(argc == 1 && !enif_get_string(env, argv[0], path, 1024, ERL_NIF_LATIN1)) {
         return enif_make_badarg(env);
     }
 
-    if(!enif_get_int(env, argv[1], &port)) {
+    if(argc == 2 && !enif_get_string(env, argv[0], ip, 1024, ERL_NIF_LATIN1)) {
+        return enif_make_badarg(env);
+    }
+
+    if(argc == 2 && !enif_get_int(env, argv[1], &port)) {
         return enif_make_badarg(env);
     }
 
     redisAsyncContext **c = enif_alloc_resource(async_context_type, sizeof(redisAsyncContext));
 
-    *c = redisAsyncConnect(ip, port);
+    if(argc == 1) {
+        *c = redisAsyncConnectUnix(path);
+    } else if(argc == 2) {
+        *c = redisAsyncConnect(ip, port);
+    }
+
     if ((*c)->err) {
         // Let *c leak for now...
         printf("Error: %s\n", (*c)->errstr);
@@ -150,6 +180,7 @@ async_command(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
 }
 
 static ErlNifFunc nif_funcs[] = {
+    {"connect", 1, redis_connect},
     {"connect", 2, redis_connect},
     {"async_command", 2, async_command}
 };

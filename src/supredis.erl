@@ -1,5 +1,6 @@
 -module(supredis).
--export([connect/2,
+-export([connect/1,
+         connect/2,
          sync_command/2,
          sync_command/3,
          async_command/2]).
@@ -7,6 +8,9 @@
 
 -define(APPNAME, supredis).
 -define(LIBNAME, supredis).
+
+connect(_) ->
+    not_loaded(?LINE).
 
 connect(_, _) ->
     not_loaded(?LINE).
